@@ -34,10 +34,28 @@ if archivo_cargado is not None:
 
     st.sidebar.success(f"🎯 Se cargaron {len(tickers)} activos.")
 
-    # Fechas automáticas
+    # --- NUEVA SECCIÓN DE FECHAS EN PANTALLA ---
+    st.header("📅 Rango de Fechas del Análisis")
+    
+    # Calcular fechas por defecto (hace 2 años hasta ayer)
     ayer = datetime.now() - timedelta(days=1)
-    FIN = ayer.strftime("%Y-%m-%d")
-    INICIO = (ayer - timedelta(days=2 * 365)).strftime("%Y-%m-%d")
+    hace_dos_anos = ayer - timedelta(days=2 * 365)
+    
+    # Creamos dos columnas en la pantalla principal para mostrar y seleccionar las fechas
+    col_fecha_1, col_fecha_2 = st.columns(2)
+    
+    with col_fecha_1:
+        fecha_inicio = st.date_input("Fecha DESDE (Inicio)", value=hace_dos_anos)
+        INICIO = fecha_inicio.strftime("%Y-%m-%d")
+        
+    with col_fecha_2:
+        fecha_fin = st.date_input("Fecha HASTA (Fin)", value=ayer)
+        FIN = fecha_fin.strftime("%Y-%m-%d")
+        
+    # Muestra un texto informativo con las fechas seleccionadas
+    st.info(f"📆 Analizando datos desde el **{INICIO}** hasta el **{FIN}**")
+    
+
 
     # 2. DESCARGAR DATOS
     with st.spinner("🚀 Descargando datos desde Yahoo Finance..."):
@@ -71,67 +89,81 @@ if archivo_cargado is not None:
         retornos_diarios = datos_precios.pct_change().dropna()
         matriz_correlacion = retornos_diarios.corr()
 
-        # --- SECCIÓN DE GRÁFICOS ---
-        st.header("📈 Análisis Visual")
-        
-        col1, col2 = st.columns(2)
+        # --- NUEVA ORGANIZACIÓN EN SOLAPAS (TABS) ---
+        st.header("📊 Resultados del Análisis")
 
-        with col1:
-            st.subheader("Evolución de Precios Normalizados")
-            fig1, ax1 = plt.subplots(figsize=(10, 5))
-            for columna in rendimiento_acumulado.columns:
-                ax1.plot(rendimiento_acumulado.index, rendimiento_acumulado[columna], label=columna, linewidth=2)
-            ax1.set_title("Base 100", fontsize=12, fontweight='bold')
-            ax1.legend(loc="upper left")
-            st.pyplot(fig1)
+        # Creamos 3 solapas
+        tab1, tab2, tab3 = st.tabs([
+            "📈 Evolución y Tendencias", 
+            "🔥 Correlación", 
+            "🏆 Tabla Comparativa y Señales"
+        ])
 
-        with col2:
-            st.subheader("Tendencia (Media Móvil 100 días)")
-            fig1b, ax1b = plt.subplots(figsize=(10, 5))
-            tendencia_suavizada = rendimiento_acumulado.rolling(window=100, min_periods=1).mean()
-            for columna in tendencia_suavizada.columns:
-                ax1b.plot(tendencia_suavizada.index, tendencia_suavizada[columna], label=columna, linewidth=2.5)
-            ax1b.legend(loc="upper left")
-            st.pyplot(fig1b)
+        # --- SOLAPA 1: EVOLUCIÓN Y TENDENCIAS ---
+        with tab1:
+            st.subheader("Análisis de Precios Normalizados")
+            col1, col2 = st.columns(2)
 
-        st.subheader("🔥 Matriz de Correlación")
-        fig2, ax2 = plt.subplots(figsize=(8, 4))
-        sns.heatmap(matriz_correlacion, annot=True, cmap="coolwarm", vmin=-1, vmax=1, fmt=".2f", ax=ax2)
-        st.pyplot(fig2)
+            with col1:
+                fig1, ax1 = plt.subplots(figsize=(10, 6))
+                for columna in rendimiento_acumulado.columns:
+                    ax1.plot(rendimiento_acumulado.index, rendimiento_acumulado[columna], label=columna, linewidth=2)
+                ax1.set_title("Evolución (Base 100)", fontsize=12, fontweight='bold')
+                ax1.legend(loc="upper left")
+                st.pyplot(fig1)
 
-        # 4. INDICADORES Y SEÑALES
-        st.header("🏆 Tabla Comparativa de Inversión")
-        
-        rendimiento_total = (datos_precios.iloc[-1] / datos_precios.iloc[0] - 1) * 100
-        volatilidad_anualizada = retornos_diarios.std() * (252 ** 0.5) * 100
-        retornos_promedio_anual = retornos_diarios.mean() * 252 * 100
-        sharpe_ratio = retornos_promedio_anual / volatilidad_anualizada
+            with col2:
+                fig1b, ax1b = plt.subplots(figsize=(10, 6))
+                tendencia_suavizada = rendimiento_acumulado.rolling(window=100, min_periods=1).mean()
+                for columna in tendencia_suavizada.columns:
+                    ax1b.plot(tendencia_suavizada.index, tendencia_suavizada[columna], label=columna, linewidth=2.5)
+                ax1b.set_title("Tendencia (Media Móvil 100 días)", fontsize=12, fontweight='bold')
+                ax1b.legend(loc="upper left")
+                st.pyplot(fig1b)
 
-        senales = {}
-        for columna in datos_precios.columns:
-            ma_rapida = datos_precios[columna].rolling(window=10, min_periods=1).mean()
-            ma_lenta = datos_precios[columna].rolling(window=50, min_periods=1).mean()
-            senales[columna] = "COMPRAR 🟢" if ma_rapida.iloc[-1] >= ma_lenta.iloc[-1] else "VENDER 🔴"
+        # --- SOLAPA 2: CORRELACIÓN ---
+        with tab2:
+            st.subheader("Matriz de Correlación de Retornos Diarios")
+            fig2, ax2 = plt.subplots(figsize=(8, 4))
+            sns.heatmap(matriz_correlacion, annot=True, cmap="coolwarm", vmin=-1, vmax=1, fmt=".2f", ax=ax2)
+            st.pyplot(fig2)
 
-        tabla_indicadores = pd.DataFrame({
-            'Rendimiento Total (%)': rendimiento_total,
-            'Volatilidad Anualizada (%)': volatilidad_anualizada,
-            'Ratio de Sharpe': sharpe_ratio,
-            'Señal Actual': pd.Series(senales)
-        }).sort_values(by='Ratio de Sharpe', ascending=False).round(2)
+        # --- SOLAPA 3: TABLA E INDICADORES ---
+        with tab3:
+            st.subheader("Indicadores Avanzados y Señales de Inversión")
+            
+            # Cálculo de métricas
+            rendimiento_total = (datos_precios.iloc[-1] / datos_precios.iloc[0] - 1) * 100
+            volatilidad_anualizada = retornos_diarios.std() * (252 ** 0.5) * 100
+            retornos_promedio_anual = retornos_diarios.mean() * 252 * 100
+            sharpe_ratio = retornos_promedio_anual / volatilidad_anualizada
 
-        # Mostrar tabla interactiva en la web
-        st.dataframe(tabla_indicadores, use_container_width=True)
+            senales = {}
+            for columna in datos_precios.columns:
+                ma_rapida = datos_precios[columna].rolling(window=10, min_periods=1).mean()
+                ma_lenta = datos_precios[columna].rolling(window=50, min_periods=1).mean()
+                senales[columna] = "COMPRAR 🟢" if ma_rapida.iloc[-1] >= ma_lenta.iloc[-1] else "VENDER 🔴"
 
-        # Botón para descargar el reporte Excel creado en memoria
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            tabla_indicadores.to_excel(writer, sheet_name='Indicadores')
-        st.download_button(
-            label="💾 Descargar Reporte Excel",
-            data=output.getvalue(),
-            file_name=f"reporte_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            tabla_indicadores = pd.DataFrame({
+                'Rendimiento Total (%)': rendimiento_total,
+                'Volatilidad Anualizada (%)': volatilidad_anualizada,
+                'Ratio de Sharpe': sharpe_ratio,
+                'Señal Actual': pd.Series(senales)
+            }).sort_values(by='Ratio de Sharpe', ascending=False).round(2)
+
+            # Mostrar tabla interactiva
+            st.dataframe(tabla_indicadores, use_container_width=True)
+
+            # Botón para descargar el reporte Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                tabla_indicadores.to_excel(writer, sheet_name='Indicadores')
+            
+            st.download_button(
+                label="💾 Descargar Reporte Excel",
+                data=output.getvalue(),
+                file_name=f"reporte_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 else:
     st.info("💡 Por favor, sube tu archivo Excel en la barra lateral para comenzar el análisis.")
