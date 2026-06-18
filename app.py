@@ -27,10 +27,14 @@ if archivo_cargado is not None:
     df_filtrado = df_excel[df_excel['Buscar'].astype(str).str.strip().str.upper() == 'X']
 
     tickers = {}
+    # --- NUEVO: Guardamos una relación directa del Nombre con su Ticker limpio ---
+    ticker_puro = {} 
+    
     for _, fila in df_filtrado.iterrows():
         titulo = f"{str(fila['Descripcion']).strip()}-{str(fila['Tipo']).strip()}-{str(fila['Rubro']).strip()}"
         ticker_yahoo = str(fila['Ticket']).strip()
         tickers[titulo] = ticker_yahoo
+        ticker_puro[titulo] = ticker_yahoo # Guardamos para armar el link después
 
     st.sidebar.success(f"🎯 Se cargaron {len(tickers)} activos.")
 
@@ -39,17 +43,17 @@ if archivo_cargado is not None:
     
     # Calcular fechas por defecto (hace 2 años hasta ayer)
     ayer = datetime.now() - timedelta(days=1)
-    hace_dos_anos = ayer - timedelta(days=2 * 365)
+    hace_dos_anos = ayer - timedelta(days=1 * 365)
     
     # Creamos dos columnas en la pantalla principal para mostrar y seleccionar las fechas
     col_fecha_1, col_fecha_2 = st.columns(2)
     
     with col_fecha_1:
-        fecha_inicio = st.date_input("Fecha DESDE (Inicio)", value=hace_dos_anos)
+        fecha_inicio = st.date_input("Fecha DESDE", value=hace_dos_anos)
         INICIO = fecha_inicio.strftime("%Y-%m-%d")
         
     with col_fecha_2:
-        fecha_fin = st.date_input("Fecha HASTA (Fin)", value=ayer)
+        fecha_fin = st.date_input("Fecha HASTA", value=ayer)
         FIN = fecha_fin.strftime("%Y-%m-%d")
         
     # Muestra un texto informativo con las fechas seleccionadas
@@ -139,20 +143,41 @@ if archivo_cargado is not None:
             sharpe_ratio = retornos_promedio_anual / volatilidad_anualizada
 
             senales = {}
+            links_yahoo = {} # Diccionario temporal para guardar las URLs
+            
             for columna in datos_precios.columns:
                 ma_rapida = datos_precios[columna].rolling(window=10, min_periods=1).mean()
                 ma_lenta = datos_precios[columna].rolling(window=50, min_periods=1).mean()
                 senales[columna] = "COMPRAR 🟢" if ma_rapida.iloc[-1] >= ma_lenta.iloc[-1] else "VENDER 🔴"
+                
+                # --- NUEVO: Construcción de la URL dinámica ---
+                ticker_actual = ticker_puro.get(columna, "")
+                links_yahoo[columna] = f"https://es.finance.yahoo.com/quote/{ticker_actual}"
 
+            # Construcción del DataFrame ordenado
             tabla_indicadores = pd.DataFrame({
+                'Ver en Yahoo': pd.Series(links_yahoo), # Insertada al principio
                 'Rendimiento Total (%)': rendimiento_total,
                 'Volatilidad Anualizada (%)': volatilidad_anualizada,
                 'Ratio de Sharpe': sharpe_ratio,
                 'Señal Actual': pd.Series(senales)
-            }).sort_values(by='Ratio de Sharpe', ascending=False).round(2)
+            }).sort_values(by='Ratio de Sharpe', ascending=False)
+            
+            # Redondeamos solo numéricos para no romper los strings de links o señales
+            columnas_num = ['Rendimiento Total (%)', 'Volatilidad Anualizada (%)', 'Ratio de Sharpe']
+            tabla_indicadores[columnas_num] = tabla_indicadores[columnas_num].round(2)
 
-            # Mostrar tabla interactiva
-            st.dataframe(tabla_indicadores, use_container_width=True)
+            # --- NUEVO: Mostrar tabla interactiva configurando la columna como Link ---
+            st.dataframe(
+                tabla_indicadores, 
+                use_container_width=True,
+                column_config={
+                    "Ver en Yahoo": st.column_config.LinkColumn(
+                        "Detalle 🔗", 
+                        display_text="Ver" # Texto alternativo para que no se vea una URL kilométrica
+                    )
+                }
+            )
 
             # Botón para descargar el reporte Excel
             output = io.BytesIO()
