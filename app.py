@@ -128,8 +128,6 @@ if archivo_cargado is not None:
 
         # --- SOLAPA 1: EVOLUCIÓN Y TENDENCIAS ---
         with tab1:
-            #st.subheader("Evolución")            
-            
             # Función auxiliar para crear los gráficos con la leyenda abajo
             def crear_grafico_interactivo(df_datos, titulo_grafico, eje_y_nombre):
                 fig = px.line(
@@ -151,9 +149,16 @@ if archivo_cargado is not None:
                 )
                 return fig
 
-            # 1. Gráfico de Precios Reales
+            # 1. Gráfico de Precios Reales (Unificando Activos + Dólar Real)
             st.markdown("**Evolución de Precios**")
-            fig_reales = crear_grafico_interactivo(datos_precios, "", "Precio")
+            
+            if not df_dolar.empty:
+                # Unimos los precios reales de los activos con el valor real del dólar
+                datos_precios_con_dolar = datos_precios.join(df_dolar, how='inner')
+            else:
+                datos_precios_con_dolar = datos_precios
+
+            fig_reales = crear_grafico_interactivo(datos_precios_con_dolar, "", "Precio")
             st.plotly_chart(fig_reales, use_container_width=True)
             
             st.write("---") # Línea divisoria
@@ -165,7 +170,6 @@ if archivo_cargado is not None:
             )
             st.plotly_chart(fig_tendencia_vs_usd, use_container_width=True)
             st.caption("💡 Las curvas muestran la tendencia suavizada (prom 20 días) partiendo de Base 100. Si la línea de un activo está por encima de la línea del **Dólar Oficial**, significa que en ese período su tendencia técnica superó a la devaluación (Retorno Real Técnico Positivo).")
-
 
         # --- SOLAPA 2: CORRELACIÓN (AHORA INTERACTIVA) ---
         with tab2:            
