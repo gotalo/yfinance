@@ -7,17 +7,18 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime, timedelta
 import io
+import plotly.express as px
 
 # Configuración de la página web
-st.set_page_config(page_title="Dashboard de Inversiones", layout="wide")
+st.set_page_config(page_title="Acciones", layout="wide")
 st.title("📊 Dashboard de Análisis de Activos")
 
 # Configuración de tema de gráficos
 sns.set_theme(style="darkgrid")
 
 # 1. CARGA DEL ARCHIVO EXCEL
-st.sidebar.header("1. Configuración")
-archivo_cargado = st.sidebar.file_uploader("Sube tu archivo 'tickets.xlsx'", type=["xlsx"])
+st.sidebar.header("Configuración")
+archivo_cargado = st.sidebar.file_uploader("Sube 'tickets.xlsx'", type=["xlsx"])
 
 if archivo_cargado is not None:
     df_excel = pd.read_excel(archivo_cargado)
@@ -27,40 +28,38 @@ if archivo_cargado is not None:
     df_filtrado = df_excel[df_excel['Buscar'].astype(str).str.strip().str.upper() == 'X']
 
     tickers = {}
-    # --- NUEVO: Guardamos una relación directa del Nombre con su Ticker limpio ---
+    # --- Relación directa del Nombre con su Ticker limpio ---
     ticker_puro = {} 
     
     for _, fila in df_filtrado.iterrows():
         titulo = f"{str(fila['Descripcion']).strip()}-{str(fila['Tipo']).strip()}-{str(fila['Rubro']).strip()}"
         ticker_yahoo = str(fila['Ticket']).strip()
         tickers[titulo] = ticker_yahoo
-        ticker_puro[titulo] = ticker_yahoo # Guardamos para armar el link después
+        ticker_puro[titulo] = ticker_yahoo 
 
     st.sidebar.success(f"🎯 Se cargaron {len(tickers)} activos.")
 
-    # --- NUEVA SECCIÓN DE FECHAS EN PANTALLA ---
-    st.header("📅 Rango de Fechas del Análisis")
+    # --- SECCIÓN DE FECHAS EN PANTALLA ---
+    #st.header("📅 Rango de Fechas del Análisis")
     
-    # Calcular fechas por defecto (hace 2 años hasta ayer)
+    # Calcular fechas por defecto (hace 1 año hasta ayer)
     ayer = datetime.now() - timedelta(days=1)
-    hace_dos_anos = ayer - timedelta(days=1 * 365)
+    hace_un_ano = ayer - timedelta(days=1 * 365)
     
-    # Creamos dos columnas en la pantalla principal para mostrar y seleccionar las fechas
-    col_fecha_1, col_fecha_2 = st.columns(2)
+    col_fecha_1, col_fecha_2, col_fecha_3 = st.columns(3)
     
     with col_fecha_1:
-        fecha_inicio = st.date_input("Fecha DESDE", value=hace_dos_anos)
+        fecha_inicio = st.date_input("Fecha DESDE", value=hace_un_ano)
         INICIO = fecha_inicio.strftime("%Y-%m-%d")
         
     with col_fecha_2:
         fecha_fin = st.date_input("Fecha HASTA", value=ayer)
         FIN = fecha_fin.strftime("%Y-%m-%d")
-        
-    # Muestra un texto informativo con las fechas seleccionadas
-    st.info(f"📆 Analizando datos desde el **{INICIO}** hasta el **{FIN}**")
     
-
-
+    with col_fecha_3:
+        st.info(f"📆 Seleccionado: del **{INICIO}** al **{FIN}**")
+    
+    
     # 2. DESCARGAR DATOS
     with st.spinner("🚀 Descargando datos desde Yahoo Finance..."):
         datos_precios = pd.DataFrame()
@@ -73,7 +72,6 @@ if archivo_cargado is not None:
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)
                 
-                # Manejo de MultiIndex o columnas simples de yfinance
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
 
@@ -84,8 +82,23 @@ if archivo_cargado is not None:
             except Exception as e:
                 st.error(f"❌ Error con {nombre}: {e}")
 
+        # Descarga del Dólar Oficial (ARS=X) para usar como Benchmark
+        try:
+            df_usd = yf.download("ARS=X", start=INICIO, end=FIN, progress=False)
+            if not df_usd.empty:
+                if isinstance(df_usd.columns, pd.MultiIndex):
+                    df_usd.columns = df_usd.columns.get_level_values(0)
+                
+                val_usd = df_usd['Adj Close'] if 'Adj Close' in df_usd.columns else df_usd['Close']
+                df_dolar = pd.DataFrame({"Dólar Oficial (ARS=X)": val_usd})
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo descargar la evolución del dólar: {e}")
+            df_dolar = pd.DataFrame()
+
         if not datos_precios.empty:
             datos_precios = datos_precios.ffill().bfill()
+            if not df_dolar.empty:
+                df_dolar = df_dolar.ffill().bfill()
 
     if not datos_precios.empty:
         # 3. PROCESAMIENTO
@@ -93,10 +106,20 @@ if archivo_cargado is not None:
         retornos_diarios = datos_precios.pct_change().dropna()
         matriz_correlacion = retornos_diarios.corr()
 
-        # --- NUEVA ORGANIZACIÓN EN SOLAPAS (TABS) ---
-        st.header("📊 Resultados del Análisis")
+        # --- NUEVO Y UNIFICADO: Unir Base 100 de Activos + Dólar ---
+        if not df_dolar.empty:
+            df_base100_completo = rendimiento_acumulado.join(df_dolar, how='inner')
+            # Indexamos el dólar a Base 100 desde el primer día común del análisis
+            df_base100_completo["Dólar Oficial (ARS=X)"] = (df_base100_completo["Dólar Oficial (ARS=X)"] / df_base100_completo["Dólar Oficial (ARS=X)"].iloc[0]) * 100
+        else:
+            df_base100_completo = rendimiento_acumulado
 
-        # Creamos 3 solapas
+        # --- APLICACIÓN DE LA MEDIA MÓVIL DE 20 DÍAS SOBRE LA BASE 100 DE TODO ---
+        tendencia_suavizada_completa = df_base100_completo.rolling(window=20, min_periods=1).mean()
+
+        # --- ORGANIZACIÓN EN SOLAPAS (TABS) ---
+        #st.header("📊 Resultados del Análisis")
+
         tab1, tab2, tab3 = st.tabs([
             "📈 Evolución y Tendencias", 
             "🔥 Correlación", 
@@ -105,36 +128,74 @@ if archivo_cargado is not None:
 
         # --- SOLAPA 1: EVOLUCIÓN Y TENDENCIAS ---
         with tab1:
-            st.subheader("Análisis de Precios Normalizados")
-            col1, col2 = st.columns(2)
+            #st.subheader("Evolución")            
+            
+            # Función auxiliar para crear los gráficos con la leyenda abajo
+            def crear_grafico_interactivo(df_datos, titulo_grafico, eje_y_nombre):
+                fig = px.line(
+                    df_datos, 
+                    labels={"value": eje_y_nombre, "index": "Fecha", "variable": "Activo"},
+                    title=titulo_grafico
+                )
+                fig.update_layout(
+                    legend=dict(
+                        orientation="h",
+                        yanchor="top",
+                        y=-0.2, 
+                        xanchor="center",
+                        x=0.5
+                    ),
+                    margin=dict(l=20, r=20, t=50, b=100), 
+                    hovermode="closest", 
+                    template="plotly_dark" 
+                )
+                return fig
 
-            with col1:
-                fig1, ax1 = plt.subplots(figsize=(10, 6))
-                for columna in rendimiento_acumulado.columns:
-                    ax1.plot(rendimiento_acumulado.index, rendimiento_acumulado[columna], label=columna, linewidth=2)
-                ax1.set_title("Evolución (Base 100)", fontsize=12, fontweight='bold')
-                ax1.legend(loc="upper left")
-                st.pyplot(fig1)
+            # 1. Gráfico de Precios Reales
+            st.markdown("**Evolución de Precios**")
+            fig_reales = crear_grafico_interactivo(datos_precios, "", "Precio")
+            st.plotly_chart(fig_reales, use_container_width=True)
+            
+            st.write("---") # Línea divisoria
 
-            with col2:
-                fig1b, ax1b = plt.subplots(figsize=(10, 6))
-                tendencia_suavizada = rendimiento_acumulado.rolling(window=100, min_periods=1).mean()
-                for columna in tendencia_suavizada.columns:
-                    ax1b.plot(tendencia_suavizada.index, tendencia_suavizada[columna], label=columna, linewidth=2.5)
-                ax1b.set_title("Tendencia (Media Móvil 100 días)", fontsize=12, fontweight='bold')
-                ax1b.legend(loc="upper left")
-                st.pyplot(fig1b)
+            # 2. Tendencia Suavizada MM20 en Base 100 incluyendo al Dólar    
+            st.markdown("**Tendencia Relativa: Media Móvil 20 días (Base 100 vs Variación del Dólar)**")        
+            fig_tendencia_vs_usd = crear_grafico_interactivo(
+                tendencia_suavizada_completa, "",  "Media Móvil del Rendimiento (%)"
+            )
+            st.plotly_chart(fig_tendencia_vs_usd, use_container_width=True)
+            st.caption("💡 Las curvas muestran la tendencia suavizada (prom 20 días) partiendo de Base 100. Si la línea de un activo está por encima de la línea del **Dólar Oficial**, significa que en ese período su tendencia técnica superó a la devaluación (Retorno Real Técnico Positivo).")
 
-        # --- SOLAPA 2: CORRELACIÓN ---
-        with tab2:
-            st.subheader("Matriz de Correlación de Retornos Diarios")
-            fig2, ax2 = plt.subplots(figsize=(8, 4))
-            sns.heatmap(matriz_correlacion, annot=True, cmap="coolwarm", vmin=-1, vmax=1, fmt=".2f", ax=ax2)
-            st.pyplot(fig2)
+
+        # --- SOLAPA 2: CORRELACIÓN (AHORA INTERACTIVA) ---
+        with tab2:            
+            st.markdown("**Correlación entre Activos**")
+            # Creamos el Heatmap interactivo con Plotly Express
+            fig_corr = px.imshow(
+                matriz_correlacion,
+                text_auto=".2f", # Muestra los valores con 2 decimales dentro de cada celda
+                color_continuous_scale="RdBu_r", # Escala de colores clásica (Rojo=Positiva, Azul=Negativa)
+                zmin=-1,
+                zmax=1,
+                title="",
+                labels=dict(x="X", y="Y", color="Corr")
+            )
+            
+            # Ajustes visuales para que se vea impecable
+            fig_corr.update_layout(
+                template="plotly_dark",
+                margin=dict(l=20, r=20, t=50, b=50),
+                height=550 # Altura cómoda para leer los nombres de los ejes
+            )
+            
+            # Mostramos el gráfico en Streamlit ocupando el ancho completo
+            st.plotly_chart(fig_corr, use_container_width=True)            
+
+
 
         # --- SOLAPA 3: TABLA E INDICADORES ---
         with tab3:
-            st.subheader("Indicadores Avanzados y Señales de Inversión")
+            st.markdown("**Indicadores y Señales de Inversión**")
             
             # Cálculo de métricas
             rendimiento_total = (datos_precios.iloc[-1] / datos_precios.iloc[0] - 1) * 100
@@ -143,38 +204,35 @@ if archivo_cargado is not None:
             sharpe_ratio = retornos_promedio_anual / volatilidad_anualizada
 
             senales = {}
-            links_yahoo = {} # Diccionario temporal para guardar las URLs
+            links_yahoo = {} 
             
             for columna in datos_precios.columns:
                 ma_rapida = datos_precios[columna].rolling(window=10, min_periods=1).mean()
                 ma_lenta = datos_precios[columna].rolling(window=50, min_periods=1).mean()
                 senales[columna] = "COMPRAR 🟢" if ma_rapida.iloc[-1] >= ma_lenta.iloc[-1] else "VENDER 🔴"
                 
-                # --- NUEVO: Construcción de la URL dinámica ---
                 ticker_actual = ticker_puro.get(columna, "")
                 links_yahoo[columna] = f"https://es.finance.yahoo.com/quote/{ticker_actual}"
 
             # Construcción del DataFrame ordenado
             tabla_indicadores = pd.DataFrame({
-                'Ver en Yahoo': pd.Series(links_yahoo), # Insertada al principio
+                'Ver en Yahoo': pd.Series(links_yahoo), 
                 'Rendimiento Total (%)': rendimiento_total,
                 'Volatilidad Anualizada (%)': volatilidad_anualizada,
                 'Ratio de Sharpe': sharpe_ratio,
                 'Señal Actual': pd.Series(senales)
             }).sort_values(by='Ratio de Sharpe', ascending=False)
             
-            # Redondeamos solo numéricos para no romper los strings de links o señales
             columnas_num = ['Rendimiento Total (%)', 'Volatilidad Anualizada (%)', 'Ratio de Sharpe']
             tabla_indicadores[columnas_num] = tabla_indicadores[columnas_num].round(2)
 
-            # --- NUEVO: Mostrar tabla interactiva configurando la columna como Link ---
             st.dataframe(
                 tabla_indicadores, 
                 use_container_width=True,
                 column_config={
                     "Ver en Yahoo": st.column_config.LinkColumn(
                         "Detalle 🔗", 
-                        display_text="Ver" # Texto alternativo para que no se vea una URL kilométrica
+                        display_text="Ver" 
                     )
                 }
             )
