@@ -234,9 +234,12 @@ if archivo_cargado is not None:
             columnas_num = ['Rendimiento Total (%)', 'Volatilidad Anualizada (%)', 'Ratio de Sharpe']
             tabla_indicadores[columnas_num] = tabla_indicadores[columnas_num].round(2)
 
+            altura_dinamica = (len(tabla_indicadores) * 35) + 40
+
             st.dataframe(
                 tabla_indicadores, 
                 use_container_width=True,
+                height=altura_dinamica,
                 column_config={
                     "Ver en Yahoo": st.column_config.LinkColumn(
                         "Detalle 🔗", 
