@@ -39,12 +39,10 @@ if archivo_cargado is not None:
 
     st.sidebar.success(f"🎯 Se cargaron {len(tickers)} activos.")
 
-    # --- SECCIÓN DE FECHAS EN PANTALLA ---
-    #st.header("📅 Rango de Fechas del Análisis")
-    
-    # Calcular fechas por defecto (hace 1 año hasta ayer)
-    ayer = datetime.now() - timedelta(days=1)
-    hace_un_ano = ayer - timedelta(days=1 * 365)
+   # --- SECCIÓN DE FECHAS EN PANTALLA ---
+    # Calcular fechas por defecto (hace 1 año hasta HOY para que incluya ayer)
+    hoy = datetime.now()
+    hace_un_ano = hoy - timedelta(days=1 * 365)
     
     col_fecha_1, col_fecha_2, col_fecha_3 = st.columns(3)
     
@@ -53,11 +51,16 @@ if archivo_cargado is not None:
         INICIO = fecha_inicio.strftime("%Y-%m-%d")
         
     with col_fecha_2:
-        fecha_fin = st.date_input("Fecha HASTA", value=ayer)
-        FIN = fecha_fin.strftime("%Y-%m-%d")
+        # El usuario ve "Hasta ayer" de forma predeterminada
+        fecha_fin = st.date_input("Fecha HASTA", value=hoy - timedelta(days=1))
+        
+        # ¡AQUÍ ESTÁ EL TRUCO! Le sumamos 1 día para la API de yfinance
+        fecha_fin_api = fecha_fin + timedelta(days=1)
+        FIN = fecha_fin_api.strftime("%Y-%m-%d")
     
     with col_fecha_3:
-        st.info(f"📆 Seleccionado: del **{INICIO}** al **{FIN}**")
+        # Mostramos en pantalla el rango real que el usuario seleccionó de forma amigable
+        st.info(f"📆 Seleccionado: del **{INICIO}** al **{fecha_fin.strftime('%Y-%m-%d')}**")
     
     
     # 2. DESCARGAR DATOS
@@ -171,7 +174,8 @@ if archivo_cargado is not None:
             st.plotly_chart(fig_tendencia_vs_usd, use_container_width=True)
             st.caption("💡 Las curvas muestran la tendencia suavizada (prom 20 días) partiendo de Base 100. Si la línea de un activo está por encima de la línea del **Dólar Oficial**, significa que en ese período su tendencia técnica superó a la devaluación (Retorno Real Técnico Positivo).")
 
-        # --- SOLAPA 2: CORRELACIÓN (AHORA INTERACTIVA) ---
+
+        # --- SOLAPA 2: CORRELACIÓN  ---
         with tab2:            
             st.markdown("**Correlación entre Activos**")
             # Creamos el Heatmap interactivo con Plotly Express
