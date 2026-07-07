@@ -4,4 +4,7 @@ pandas
 matplotlib
 seaborn
 openpyxl
-plotly.express
+plotly
+cloudscraper
+requests
+urllib3
