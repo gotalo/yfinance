@@ -231,7 +231,7 @@ if archivo_cargado is not None:
 
     # --- SOLAPA 0: PRECIOS DE HOY ---
     with tab0:
-        st.markdown("**Precios de Mercado en Tiempo Real / Último Cierre (Filtro 'Precio')**")
+        st.markdown("**Precios de Mercado en Tiempo Real / Último Cierre**")
         if not df_precios_hoy.empty:
             
             # Clonamos temporalmente para inyectar la columna interactiva de forma visual
@@ -301,13 +301,75 @@ if archivo_cargado is not None:
     # --- SOLAPA 2: CORRELACIÓN  ---
     with tab2:            
         if not datos_precios.empty:
-            st.markdown("**Correlación entre Activos**")
+            #st.markdown("### 📊 Matriz Completa de Correlación")
+            st.markdown("**Matriz Completa de Correlación**")
             fig_corr = px.imshow(
-                matriz_correlacion, text_auto=".2f", color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
-                labels=dict(x="X", y="Y", color="Corr")
+                matriz_correlacion, 
+                text_auto=".2f", 
+                color_continuous_scale="RdBu_r", 
+                zmin=-1, zmax=1,
+                labels=dict(x="Activo", y="Activo", color="Corr")
             )
             fig_corr.update_layout(template="plotly_dark", margin=dict(l=20, r=20, t=50, b=50), height=550)
             st.plotly_chart(fig_corr, use_container_width=True)            
+
+            st.write("---")
+
+            # --- TABLA Y FILTRO DE CORRELACIONES RELEVANTES ---
+            #st.markdown("### 🎯 Tabla de Correlaciones Relevantes")
+            st.markdown("**Tabla de Correlaciones Relevantes**")
+            
+            # Control interactivo para seleccionar el umbral
+            umbral_corr = st.slider(
+                "Filtrar por Umbral de Correlación Mínima (|r|):",
+                min_value=0.0, 
+                max_value=0.99, 
+                value=0.60, 
+                step=0.05,
+                help="Se mostrarán únicamente los pares cuyo valor absoluto de correlación sea mayor o igual al seleccionado."
+            )
+
+            # Extraemos los pares de la matriz eliminando la diagonal principal y los duplicados
+            import numpy as np
+
+            mask = np.triu(np.ones(matriz_correlacion.shape), k=1).astype(bool)
+            matriz_filtrada = matriz_correlacion.where(mask)
+            
+            df_pares = matriz_filtrada.stack().reset_index()
+            df_pares.columns = ['Activo 1', 'Activo 2', 'Correlación']
+            
+            df_pares['Valor Absoluto'] = df_pares['Correlación'].abs()
+
+            # Filtrar por el umbral y ordenar de mayor a menor correlación
+            df_relevantes = df_pares[df_pares['Valor Absoluto'] >= umbral_corr].sort_values(by='Correlación', ascending=False)
+
+            if not df_relevantes.empty:
+                # Mostramos métrica resumen con la cantidad de coincidencias
+                st.caption(f"Se encontraron **{len(df_relevantes)}** par(es) de activos con correlación |r| ≥ **{umbral_corr:.2f}**:")
+                
+                # Formateamos numéricamente la correlación a 2 decimales
+                df_mostrar = df_relevantes[['Activo 1', 'Activo 2', 'Correlación']].copy()
+                df_mostrar['Correlación'] = df_mostrar['Correlación'].round(2)
+
+                # Mostramos la tabla en pantalla con altura dinámica
+                altura_tabla = min(500, (len(df_mostrar) * 35) + 40)
+                st.dataframe(
+                    df_mostrar,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=altura_tabla,
+                    column_config={
+                        "Activo 1": st.column_config.Column(width="large"),
+                        "Activo 2": st.column_config.Column(width="large"),
+                        "Correlación": st.column_config.NumberColumn(
+                            "Correlación (r)",
+                            format="%.2f"
+                        )
+                    }
+                )
+            else:
+                st.info(f"💡 No existen pares de activos con correlación mayor o igual a **{umbral_corr:.2f}**. Intenta bajando el filtro.")
+
         else:
             st.warning("⚠️ No hay suficientes datos históricos para calcular correlaciones.")
 
